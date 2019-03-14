@@ -4,10 +4,11 @@
 #include "qbmp/qdbmp.h"
 
 int limit = 128;
-float fPow = 8;
+float fPow = 6;
 float shiftValue = 0.95;
-float epsilon = 0.000001;
-int itLimit = 400;
+float epsilon = 0.0001;
+int itLimit = 256;
+float xMul = 1.0f;
 
 /**********************************************************************************************************************/
 
@@ -29,10 +30,8 @@ typedef struct Color {
 
 typedef struct Hit {
     Vector point, direction;
-    Color color;
     float distance;
     int depth;
-    char inf;
 } Hit;
 
 typedef struct Camera {
@@ -74,8 +73,8 @@ void sub(Vector * a, Vector * b, Vector * result) {
 }
 
 void cross(Vector * v1, Vector * v2, Vector * result) {
-    float a = v1->x, b = v1->y, c = v1->z;
-    float x = v2->x, y = v2->y, z = v2->z;
+    float a = v2->x, b = v2->y, c = v2->z;
+    float x = v1->x, y = v1->y, z = v1->z;
 
     result->x = y * c - z * b;
     result->y = x * c - a * z;
@@ -100,41 +99,31 @@ void sDiv(Vector * v, float s, Vector * result) {
 
 /**********************************************************************************************************************/
 
-
-float phi(Vector * v) {
-    return atanf(v->y / v->x);
-}
-
-float theta(Vector * v) {
-    return acosf(v->z / len(v));
-}
-
 void powVec(Vector * v, Vector * result) {
-    float r = len(v);
-    float ph = phi(v);
-    float th = theta(v);
-    float nx = sinf(fPow * th) * sinf(fPow * ph);
-    float ny = sinf(fPow * th) * sinf(fPow * ph);
-    float nz = cosf(fPow * th);
-    float p = powf(r, fPow);
+    float ph = atanf(v->y / v->x);
+    float th = acosf(v->z / len(v));
 
-    result->x = nx * p;
-    result->y = ny * p;
-    result->z = nz * p;
+    result->x = sinf(fPow * th) * cosf(fPow * ph);
+    result->y = sinf(fPow * th) * sinf(fPow * ph);
+    result->z = cosf(fPow * th);
+
+    sMul(result, powf(len(v), fPow), result);
 }
 
 Pair iterateZ(float dr, Vector * z, Vector * c, int level) {
     float r = len(z);
+
     Vector zn;
     powVec(z, &zn);
     add(&zn, c, &zn);
-    float drn = powf(r, fPow - 1) * fPow * dr + 1.0f;
+
+    float drn = powf(r, fPow - 1.0f) * fPow * dr + 1.0f;
 
     Pair result;
 
     if (level > limit || r > 2.0f) {
         result.x = r;
-        result.y = drn;
+        result.y = dr;
     } else {
         result = iterateZ(drn, &zn, c, level + 1);
     }
@@ -145,7 +134,7 @@ Pair iterateZ(float dr, Vector * z, Vector * c, int level) {
 float distance(Vector * point) {
     Pair p = iterateZ(1.0f, point, point, 0);
 
-    return 0.5f * logf(p.x * p.x / p.y);
+    return (0.5f * logf(p.x) * p.x) / p.y;
 }
 
 void fracNormal(Vector * point, Vector * direction, Vector * result) {
@@ -164,13 +153,9 @@ void fracNormal(Vector * point, Vector * direction, Vector * result) {
     add(point, &c, &p_plus_c);
     sub(point, &c, &p_minus_c);
 
-    float x = distance(&p_plus_a) - distance (&p_minus_a);
-    float y = distance(&p_plus_b) - distance (&p_minus_b);
-    float z = distance(&p_plus_c) - distance (&p_minus_c);
-
-    result->x = x;
-    result->y = y;
-    result->z = z;
+    result->x = distance(&p_plus_a) - distance (&p_minus_a);
+    result->y = distance(&p_plus_b) - distance (&p_minus_b);
+    result->z = distance(&p_plus_c) - distance (&p_minus_c);
 }
 
 void shift(Ray * ray, float mul) {
@@ -182,38 +167,51 @@ void shift(Ray * ray, float mul) {
 }
 
 Hit raymarch(Ray * ray, float pathLen, int level) {
-    Hit result = {.inf = 0};
+    Hit hit = {};
 
-    if (level > limit) {
-        result.inf = 1;
-        result.color.r = 25;
-        result.color.g = 25;
-        result.color.b = 25;
+    if (level > itLimit) {
+        hit.distance = INFINITY;
+        hit.depth = level;
+
+        return hit;
     }
 
     float d = distance(&ray->pos);
 
     if (d < epsilon) {
-        result.point = ray->pos;
-        fracNormal(&result.point, &ray->dir, &result.direction);
-        result.distance = pathLen;
-        result.depth = level;
+        hit.point = ray->pos;
+        fracNormal(&hit.point, &ray->dir, &hit.direction);
+        hit.distance = pathLen;
+        hit.depth = level;
 
+    } else if (isinf(d) || isnan(d)) {
+        hit.distance = INFINITY;
+        hit.depth = level;
     } else {
 
         Vector temp = ray->pos;
         shift(ray, d);
         sub(&temp, &ray->pos, &temp);
 
-        result = raymarch(ray, pathLen + len(&temp), level + 1);
+        hit = raymarch(ray, pathLen + len(&temp), level + 1);
 
     }
 
-    return result;
+    return hit;
 }
 
-Hit traceRay() {
+Hit traceRay(Camera * camera, float x, float y) {
+    Ray ray = {};
 
+    sMul(&camera->nvX, x * xMul, &ray.dir);
+    sMul(&camera->nvY, y, &ray.pos);
+    add(&ray.pos, &ray.dir, &ray.dir);
+    add(&camera->nDir, &ray.dir, &ray.dir);
+    normalize(&ray.dir);
+
+    ray.pos = camera->pos;
+
+    return raymarch(&ray, 0.0f, 0);
 }
 
 Camera buildCamera(Vector position, Vector direction, Vector up) {
@@ -233,11 +231,46 @@ Camera buildCamera(Vector position, Vector direction, Vector up) {
 /**********************************************************************************************************************/
 
 int main() {
-    BMP* bmp = BMP_Create(2000, 2000, 24);
+    int width = 1000, height = 1000;
+    int m_width = width / 2, m_height = height / 2;
 
-    Vector camera_position = {.x = -1.0f, .y = -0.3f, .z = 1.0f};
-    Vector camera_direction = {.x = 1.0f, .y = 0.0f, .z = -1.0f};
-    Camera camera = buildCamera();
+    BMP* bmp = BMP_Create(width, height, 32);
+
+    Vector camera_position = {.x = -1.0f, .y = 0.0f, .z = -1.0f};
+
+    normalize(&camera_position);
+    sMul(&camera_position, 1.55f, &camera_position);
+
+    Vector camera_direction = {.x = 1.0f, .y = 0.0f, .z = 1.0f};
+    Vector camera_up = {.x = 0.0f, .y = 1.0f, .z = 0.0f};
+
+    Camera camera = buildCamera(camera_position, camera_direction, camera_up);
+
+    #pragma omp parallel for
+    for (int i = 0; i < width; i++) {
+        for (int j = 0; j < height; j++) {
+            float x = ((float)i - ((float)m_width)) / ((float)m_width);
+            float y = ((float)j - ((float)m_height)) / ((float)m_height);
+
+            Hit hit = traceRay(&camera, x, y);
+
+            Color color = {.r = 0, .g = 0, .b = 0};
+
+            if (!isinf(hit.distance)) {
+                float color_strength = 1.0f - (float)hit.depth / (float)itLimit;
+
+                color.r = 0;
+                color.g = (unsigned char)(color_strength * 255.0f);
+                color.b = (unsigned char)(color_strength * 255.0f);
+            }
+
+            BMP_SetPixelRGB(bmp, j, i,
+                color.r,
+                color.g,
+                color.b
+            );
+        }
+    }
 
     BMP_WriteFile(bmp, "result.bmp");
     return 0;
