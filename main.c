@@ -89,13 +89,13 @@ float dot(Vector * v1, Vector * v2) {
     return v1->x * v2->x + v1->y * v2->y + v1->z * v2->z;
 }
 
-void sMul(Vector * v, float s, Vector * result) {
+void scalar_mul(Vector *v, float s, Vector *result) {
     result->x = v->x * s;
     result->y = v->y * s;
     result->z = v->z * s;
 }
 
-void sDiv(Vector * v, float s, Vector * result) {
+void scalar_div(Vector *v, float s, Vector *result) {
     result->x = v->x / s;
     result->y = v->y / s;
     result->z = v->z / s;
@@ -103,7 +103,7 @@ void sDiv(Vector * v, float s, Vector * result) {
 
 /**********************************************************************************************************************/
 
-void powVec(Vector * v, Vector * result) {
+void pow_vec(Vector *v, Vector *result) {
     float ph = atanf(v->y / v->x);
     float th = acosf(v->z / len(v));
 
@@ -111,14 +111,14 @@ void powVec(Vector * v, Vector * result) {
     result->y = sinf(fPow * th) * sinf(fPow * ph);
     result->z = cosf(fPow * th);
 
-    sMul(result, powf(len(v), fPow), result);
+    scalar_mul(result, powf(len(v), fPow), result);
 }
 
-Pair iterateZ(float dr, Vector * z, Vector * c, int level) {
+Pair iterate_z(float dr, Vector *z, Vector *c, int level) {
     float r = len(z);
 
     Vector zn;
-    powVec(z, &zn);
+    pow_vec(z, &zn);
     add(&zn, c, &zn);
 
     float drn = powf(r, fPow - 1.0f) * fPow * dr + 1.0f;
@@ -129,19 +129,20 @@ Pair iterateZ(float dr, Vector * z, Vector * c, int level) {
         result.x = r;
         result.y = dr;
     } else {
-        result = iterateZ(drn, &zn, c, level + 1);
+        result = iterate_z(drn, &zn, c, level + 1);
     }
 
     return result;
 }
 
 float distance(Vector * point) {
-    Pair p = iterateZ(1.0f, point, point, 0);
+    Pair p = iterate_z(1.0f, point, point, 0);
 
     return (0.5f * logf(p.x) * p.x) / p.y;
 }
 
-void fracNormal(Vector * point, Vector * direction, Vector * result) {
+// Will be used to add shading of mandelbulb later
+void normal_to_fractal(Vector *point, Vector *direction, Vector *result) {
     Vector a = {.x = direction->x, .y = 0.0f, .z = 0.0f};
     Vector b = {.x = 0.0f, .y = direction->y, .z = 0.0f};
     Vector c = {.x = 0.0f, .y = 0.0f, .z = direction->z};
@@ -165,46 +166,40 @@ void fracNormal(Vector * point, Vector * direction, Vector * result) {
 void shift(Ray * ray, float mul) {
     Vector multiplier;
 
-    sMul(&ray->dir, mul * shiftValue, &multiplier);
+    scalar_mul(&ray->dir, mul * shiftValue, &multiplier);
 
     add(&ray->pos, &multiplier, &ray->pos);
 }
 
-Hit raymarch(Ray * ray, float pathLen, int level) {
-    Hit hit = {};
+Hit march_ray(Ray *ray, float pathLen, int level) {
+    Hit hit = { .distance = INFINITY, .depth = level };
 
     if (level > itLimit) {
-        hit.distance = INFINITY;
-        hit.depth = level;
-
         return hit;
     }
 
     float d = distance(&ray->pos);
 
-    if (d < epsilon) {
+    if (d < epsilon && !(isinf(d) || isnan(d))) {
         hit.point = ray->pos;
-        fracNormal(&hit.point, &ray->dir, &hit.direction);
+        normal_to_fractal(&hit.point, &ray->dir, &hit.direction);
         hit.distance = pathLen;
         hit.depth = level;
 
-    } else if (isinf(d) || isnan(d)) {
-        hit.distance = INFINITY;
-        hit.depth = level;
     } else {
 
         Vector temp = ray->pos;
         shift(ray, d);
         sub(&temp, &ray->pos, &temp);
 
-        hit = raymarch(ray, pathLen + len(&temp), level + 1);
+        hit = march_ray(ray, pathLen + len(&temp), level + 1);
 
     }
 
     return hit;
 }
 
-Camera buildCamera(
+Camera build_camera(
         int width,
         int height,
         float shift_multiplier,
@@ -242,20 +237,20 @@ Camera buildCamera(
 void move_ray_to_view_plane(Ray * ray, Camera * camera) {
     float shift_value = 1.0f / dot(&ray->dir, &camera->dir);
     Vector to_add;
-    sMul(&ray->dir, shift_value * camera->shift_multiplier, &to_add);
+    scalar_mul(&ray->dir, shift_value * camera->shift_multiplier, &to_add);
     add(&ray->pos, &to_add, &ray->pos);
 }
 
 
-Hit traceRay(Camera * camera, float x, float y) {
+Hit trace_ray(Camera *camera, float x, float y) {
     Ray ray = {};
 
     Vector temp;
 
-    sMul(&camera->u, x * camera->ratio, &ray.dir);
-    sMul(&camera->v, y, &temp);
+    scalar_mul(&camera->u, x * camera->ratio, &ray.dir);
+    scalar_mul(&camera->v, y, &temp);
     add(&temp, &ray.dir, &ray.dir);
-    sMul(&camera->w, camera->view_plane_distance, &temp);
+    scalar_mul(&camera->w, camera->view_plane_distance, &temp);
     sub(&ray.dir, &temp, &ray.dir);
     normalize(&ray.dir);
 
@@ -263,7 +258,7 @@ Hit traceRay(Camera * camera, float x, float y) {
 
     move_ray_to_view_plane(&ray, camera);
 
-    return raymarch(&ray, 0.0f, 0);
+    return march_ray(&ray, 0.0f, 0);
 }
 
 /**********************************************************************************************************************/
@@ -283,7 +278,7 @@ int main() {
     float shift_multiplier = view_plane_distance >= 1.0f ? 0.25f / view_plane_distance : view_plane_distance / 4.0f;
     float ratio = 1.0f;
 
-    Camera camera = buildCamera(
+    Camera camera = build_camera(
             width,
             height,
             shift_multiplier,
@@ -300,7 +295,7 @@ int main() {
             float x = ((float)i - ((float)m_width)) / ((float)m_width);
             float y = ((float)j - ((float)m_height)) / ((float)m_height);
 
-            Hit hit = traceRay(&camera, x, y);
+            Hit hit = trace_ray(&camera, x, y);
 
             Color color = {.r = 0, .g = 0, .b = 0};
 
