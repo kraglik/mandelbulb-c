@@ -4,11 +4,10 @@
 #include "qbmp/qdbmp.h"
 
 int limit = 128;
-float fPow = 6;
+float fPow = 8;
 float shiftValue = 0.95;
 float epsilon = 0.0001;
 int itLimit = 256;
-float xMul = 1.0f;
 
 /**********************************************************************************************************************/
 
@@ -35,7 +34,12 @@ typedef struct Hit {
 } Hit;
 
 typedef struct Camera {
-    Vector pos, nDir, nvX, nvY;
+
+    Vector pos, dir, up, u, w, v;
+
+    float view_plane_distance, ratio, shift_multiplier;
+    int width, height;
+
 } Camera;
 
 /**********************************************************************************************************************/
@@ -200,51 +204,95 @@ Hit raymarch(Ray * ray, float pathLen, int level) {
     return hit;
 }
 
+Camera buildCamera(
+        int width,
+        int height,
+        float shift_multiplier,
+        float view_plane_distance,
+        float ratio,
+        Vector position,
+        Vector target,
+        Vector up) {
+
+    Camera camera = {
+            .pos = position,
+            .width = width,
+            .height = height,
+            .ratio = ratio,
+            .shift_multiplier = shift_multiplier,
+            .up = up,
+            .view_plane_distance = view_plane_distance
+    };
+
+    sub(&target, &position, &camera.dir);
+    normalize(&camera.dir);
+
+    sub(&position, &target, &camera.w);
+    normalize(&camera.w);
+
+    cross(&up, &camera.w, &camera.u);
+    normalize(&camera.u);
+
+    cross(&camera.w, &camera.u, &camera.v);
+    normalize(&camera.v);
+
+    return camera;
+}
+
+void move_ray_to_view_plane(Ray * ray, Camera * camera) {
+    float shift_value = 1.0f / dot(&ray->dir, &camera->dir);
+    Vector to_add;
+    sMul(&ray->dir, shift_value * camera->shift_multiplier, &to_add);
+    add(&ray->pos, &to_add, &ray->pos);
+}
+
+
 Hit traceRay(Camera * camera, float x, float y) {
     Ray ray = {};
 
-    sMul(&camera->nvX, x * xMul, &ray.dir);
-    sMul(&camera->nvY, y, &ray.pos);
-    add(&ray.pos, &ray.dir, &ray.dir);
-    add(&camera->nDir, &ray.dir, &ray.dir);
+    Vector temp;
+
+    sMul(&camera->u, x * camera->ratio, &ray.dir);
+    sMul(&camera->v, y, &temp);
+    add(&temp, &ray.dir, &ray.dir);
+    sMul(&camera->w, camera->view_plane_distance, &temp);
+    sub(&ray.dir, &temp, &ray.dir);
     normalize(&ray.dir);
 
     ray.pos = camera->pos;
 
+    move_ray_to_view_plane(&ray, camera);
+
     return raymarch(&ray, 0.0f, 0);
-}
-
-Camera buildCamera(Vector position, Vector direction, Vector up) {
-    Camera camera = { .pos = position, .nDir = direction };
-
-    normalize(&camera.nDir);
-
-    cross(&up, &direction, &camera.nvX);
-    normalize(&camera.nvX);
-
-    cross(&camera.nDir, &camera.nvX, &camera.nvY);
-    normalize(&camera.nvY);
-
-    return camera;
 }
 
 /**********************************************************************************************************************/
 
 int main() {
-    int width = 1000, height = 1000;
+    int width = 2000, height = 2000;
     int m_width = width / 2, m_height = height / 2;
 
     BMP* bmp = BMP_Create(width, height, 32);
 
-    Vector camera_position = {.x = -1.0f, .y = 0.0f, .z = -1.0f};
+    Vector camera_position = {.x = 1.0f, .y = 0.0f, .z = 1.0f};
 
-    normalize(&camera_position);
-    sMul(&camera_position, 1.55f, &camera_position);
-
-    Vector camera_direction = {.x = 1.0f, .y = 0.0f, .z = 1.0f};
+    Vector camera_target = {.x = 0.0f, .y = 0.0f, .z = 0.0f};
     Vector camera_up = {.x = 0.0f, .y = 1.0f, .z = 0.0f};
 
-    Camera camera = buildCamera(camera_position, camera_direction, camera_up);
+    float view_plane_distance = 1.0f;
+    float shift_multiplier = view_plane_distance >= 1.0f ? 0.25f / view_plane_distance : view_plane_distance / 4.0f;
+    float ratio = 1.0f;
+
+    Camera camera = buildCamera(
+            width,
+            height,
+            shift_multiplier,
+            view_plane_distance,
+            ratio,
+            camera_position,
+            camera_target,
+            camera_up
+    );
 
     #pragma omp parallel for
     for (int i = 0; i < width; i++) {
