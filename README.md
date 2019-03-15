@@ -7,6 +7,9 @@ Some examples:
 Pow = 2
 ![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_2.png)
 
+Pow = 4
+![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_4.jpg)
+
 Pow = 6
 ![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_6.png)
 
