@@ -21,3 +21,9 @@ Pow = 12
 
 Pow = 32
 ![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_32.png)
+
+
+There is also a mandelbox implementation at branch 'mandelbox'.
+Example:
+
+![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/mandelbulb/examples/result_2.39128.png)
