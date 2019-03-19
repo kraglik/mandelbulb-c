@@ -3,11 +3,11 @@
 #include <math.h>
 #include "qbmp/qdbmp.h"
 
-int limit = 128;
+int limit = 64;
 float fPow = 8;
 float shiftValue = 0.95;
 float epsilon = 0.0001;
-int itLimit = 256;
+int itLimit = 64;
 
 /**********************************************************************************************************************/
 
@@ -28,7 +28,6 @@ typedef struct Color {
 } Color;
 
 typedef struct Hit {
-    Vector point, direction;
     float distance;
     int depth;
 } Hit;
@@ -51,7 +50,7 @@ float len(Vector * vector) {
 void normalize(Vector * vector) {
     float l = len(vector);
 
-    if (l < 0.00001f) {
+    if (l == 0.0f) {
         vector->x = 0.0;
         vector->y = 0.0;
         vector->z = 0.0;
@@ -95,12 +94,6 @@ void scalar_mul(Vector *v, float s, Vector *result) {
     result->z = v->z * s;
 }
 
-void scalar_div(Vector *v, float s, Vector *result) {
-    result->x = v->x / s;
-    result->y = v->y / s;
-    result->z = v->z / s;
-}
-
 /**********************************************************************************************************************/
 
 void pow_vec(Vector *v, Vector *result) {
@@ -114,86 +107,62 @@ void pow_vec(Vector *v, Vector *result) {
     scalar_mul(result, powf(len(v), fPow), result);
 }
 
-Pair iterate_z(float dr, Vector *z, Vector *c, int level) {
-    float r = len(z);
+Pair iterate_z(float dr, Vector z, Vector *c) {
+    Pair pair;
+    pair.x = 0.0f;
+    pair.y = dr;
 
-    Vector zn;
-    pow_vec(z, &zn);
-    add(&zn, c, &zn);
+    for (int i = 0;; i++) {
 
-    float drn = powf(r, fPow - 1.0f) * fPow * dr + 1.0f;
+        float r = len(&z);
+        Vector zn;
+        pow_vec(&z, &zn);
+        add(&zn, c, &zn);
 
-    Pair result;
+        if (i > limit || r > 2.0f) {
 
-    if (level > limit || r > 2.0f) {
-        result.x = r;
-        result.y = dr;
-    } else {
-        result = iterate_z(drn, &zn, c, level + 1);
+            pair.x = r;
+            pair.y = dr;
+
+            break;
+
+        } else {
+            dr = powf(r, fPow - 1.0f) * fPow * dr + 1.0f;
+            z = zn;
+
+        }
     }
 
-    return result;
+    return pair;
 }
 
 float distance(Vector * point) {
-    Pair p = iterate_z(1.0f, point, point, 0);
+    Pair p = iterate_z(1.0f, *point, point);
 
     return (0.5f * logf(p.x) * p.x) / p.y;
 }
 
-// Will be used to add shading of mandelbulb later
-void normal_to_fractal(Vector *point, Vector *direction, Vector *result) {
-    Vector a = {.x = direction->x, .y = 0.0f, .z = 0.0f};
-    Vector b = {.x = 0.0f, .y = direction->y, .z = 0.0f};
-    Vector c = {.x = 0.0f, .y = 0.0f, .z = direction->z};
+Hit march_ray(Ray *ray, float pathLen) {
+    Hit hit = { .distance = INFINITY };
+    Vector temp;
 
-    Vector p_plus_a, p_minus_a, p_plus_b, p_minus_b, p_plus_c, p_minus_c;
+    for (int i = 0; i < itLimit; i++) {
+        float d = distance(&ray->pos);
 
-    add(point, &a, &p_plus_a);
-    sub(point, &a, &p_minus_a);
+        if (d < epsilon && !(isinf(d) || isnan(d))) {
+            hit.distance = pathLen;
+            hit.depth = i;
 
-    add(point, &b, &p_plus_b);
-    sub(point, &b, &p_minus_b);
+            break;
 
-    add(point, &c, &p_plus_c);
-    sub(point, &c, &p_minus_c);
+        } else {
 
-    result->x = distance(&p_plus_a) - distance (&p_minus_a);
-    result->y = distance(&p_plus_b) - distance (&p_minus_b);
-    result->z = distance(&p_plus_c) - distance (&p_minus_c);
-}
+            scalar_mul(&ray->dir, d * shiftValue, &temp);
+            add(&temp,&ray->pos, &ray->pos);
 
-void shift(Ray * ray, float mul) {
-    Vector multiplier;
+            pathLen += d * shiftValue;
 
-    scalar_mul(&ray->dir, mul * shiftValue, &multiplier);
-
-    add(&ray->pos, &multiplier, &ray->pos);
-}
-
-Hit march_ray(Ray *ray, float pathLen, int level) {
-    Hit hit = { .distance = INFINITY, .depth = level };
-
-    if (level > itLimit) {
-        return hit;
-    }
-
-    float d = distance(&ray->pos);
-
-    if (d < epsilon && !(isinf(d) || isnan(d))) {
-        hit.point = ray->pos;
-        normal_to_fractal(&hit.point, &ray->dir, &hit.direction);
-        hit.distance = pathLen;
-        hit.depth = level;
-
-    } else {
-
-        Vector temp = ray->pos;
-        shift(ray, d);
-        sub(&temp, &ray->pos, &temp);
-
-        hit = march_ray(ray, pathLen + len(&temp), level + 1);
-
+        }
     }
 
     return hit;
@@ -258,7 +227,13 @@ Hit trace_ray(Camera *camera, float x, float y) {
 
     move_ray_to_view_plane(&ray, camera);
 
-    return march_ray(&ray, 0.0f, 0);
+    return march_ray(&ray, 0.0f);
+}
+
+/**********************************************************************************************************************/
+
+float clip(float x, float min, float max) {
+    return x > max ? max : x < min ? min : x;
 }
 
 /**********************************************************************************************************************/
@@ -266,6 +241,8 @@ Hit trace_ray(Camera *camera, float x, float y) {
 int main() {
     int width = 2000, height = 2000;
     int m_width = width / 2, m_height = height / 2;
+
+    float brightness = 1.25f;
 
     BMP* bmp = BMP_Create(width, height, 32);
 
@@ -303,8 +280,8 @@ int main() {
                 float color_strength = 1.0f - (float)hit.depth / (float)itLimit;
 
                 color.r = 0;
-                color.g = (unsigned char)(color_strength * 255.0f);
-                color.b = (unsigned char)(color_strength * 255.0f);
+                color.g = (unsigned char)clip((color_strength * 255.0f) * brightness, 0.0f, 255.0f);
+                color.b = (unsigned char)clip((color_strength * 255.0f) * brightness, 0.0f, 255.0f);
             }
 
             BMP_SetPixelRGB(bmp, j, i,
