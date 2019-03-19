@@ -3,11 +3,15 @@
 #include <math.h>
 #include "qbmp/qdbmp.h"
 
-int limit = 64;
+#define COMPONENT_FOLD(x) ( (x>1) ? (2-x) : ((x<-1) ?(-2-x):x))
+
 float fPow = 8;
 float shiftValue = 0.95;
 float epsilon = 0.0001;
-int itLimit = 64;
+int itLimit = 128;
+float r_min = 0.5f;
+float escape_time = 100.0f;
+float scale = 2.39128f;
 
 /**********************************************************************************************************************/
 
@@ -107,39 +111,60 @@ void pow_vec(Vector *v, Vector *result) {
     scalar_mul(result, powf(len(v), fPow), result);
 }
 
-Pair iterate_z(float dr, Vector z, Vector *c) {
-    Pair pair;
-    pair.x = 0.0f;
-    pair.y = dr;
+float square(float x) { return x*x; }
 
-    for (int i = 0;; i++) {
+void fold_box(Vector *v) {
 
-        float r = len(&z);
-        Vector zn;
-        pow_vec(&z, &zn);
-        add(&zn, c, &zn);
+    v->x = COMPONENT_FOLD(v->x);
+    v->y = COMPONENT_FOLD(v->y);
+    v->z = COMPONENT_FOLD(v->z);
 
-        if (i > limit || r > 2.0f) {
-
-            pair.x = r;
-            pair.y = dr;
-
-            break;
-
-        } else {
-            dr = powf(r, fPow - 1.0f) * fPow * dr + 1.0f;
-            z = zn;
-
-        }
-    }
-
-    return pair;
 }
 
-float distance(Vector * point) {
-    Pair p = iterate_z(1.0f, *point, point);
+void fold_sphere(Vector *v, float r2, float r_min_2, float r_fixed_2)
+{
+    if (r2 < r_min_2)
+        scalar_mul(v, r_fixed_2 / r_min_2, v);
+    else
+        if (r2 < r_fixed_2)
+            scalar_mul(v, r_fixed_2 / r2, v);
+}
 
-    return (0.5f * logf(p.x) * p.x) / p.y;
+float distance(Vector * p0) {
+    Vector p = *p0;
+
+    float r_min_2 = square(r_min);
+    float r_fixed_2 = 1.0f;
+    float escape = square(escape_time);
+    float d_factor = 1;
+    float r2 = -1;
+
+    float c1 = fabsf(scale - 1.0f);
+    float c2 = powf(fabsf(scale), 1 - itLimit);
+
+    for (int i = 0; i < itLimit; i++) {
+        fold_box(&p);
+        r2 = dot(&p, &p);
+
+        fold_sphere(&p, r2, r_min_2, r_fixed_2);
+
+        scalar_mul(&p, scale, &p);
+        add(&p, p0, &p);
+
+        if (r2 < r_min_2)
+            d_factor *= (r_fixed_2 / r_min_2);
+        else if (r2<r_fixed_2)
+            d_factor *= (r_fixed_2 / r2);
+
+        d_factor = d_factor * fabsf(scale) + 1.0f;
+
+        if ( r2 > escape )
+            break;
+    }
+
+    r2 = len(&p);
+
+    return (r2 - c1) / d_factor - c2;
 }
 
 Hit march_ray(Ray *ray, float pathLen) {
@@ -246,7 +271,7 @@ int main() {
 
     BMP* bmp = BMP_Create(width, height, 32);
 
-    Vector camera_position = {.x = 1.0f, .y = 0.0f, .z = 1.0f};
+    Vector camera_position = {.x = 8.0f, .y = 0.0f, .z = 8.0f};
 
     Vector camera_target = {.x = 0.0f, .y = 0.0f, .z = 0.0f};
     Vector camera_up = {.x = 0.0f, .y = 1.0f, .z = 0.0f};
