@@ -1,23 +1,8 @@
-# C Mandelbulb
-Primitive ray-marching mandelbulb renderer
+# C Mandelbox
+Primitive ray-marching mandelbox renderer
 
 
 Some examples:
 
-Pow = 2
-![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_2.png)
-
-Pow = 4
-![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_4.jpg)
-
-Pow = 6
-![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_6.png)
-
-Pow = 8
-![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_8.png)
-
-Pow = 12
-![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_12.png)
-
-Pow = 32
-![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/master/examples/result_32.png)
+Pow = 2.39128
+![alt text](https://raw.githubusercontent.com/kraglik/mandelbulb-c/mandelbox/examples/result_2.39128.png)
